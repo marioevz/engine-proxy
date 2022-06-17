@@ -32,8 +32,8 @@ type SpoofingConfig struct {
 }
 
 type SpoofingCallbacks struct {
-	RequestCallbacks  map[string]func([]byte) *Spoof
-	ResponseCallbacks map[string]func([]byte) *Spoof
+	RequestCallbacks  map[string]func(string, []byte) *Spoof
+	ResponseCallbacks map[string]func(string, []byte) *Spoof
 }
 
 type Spoof struct {
@@ -136,7 +136,7 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	modifiedReq, err := spoofRequest(spoofing, spoofCallbacks, requestBytes)
+	modifiedReq, err := spoofRequest(p.cfg.destinationUrl.String(), spoofing, spoofCallbacks, requestBytes)
 	if err != nil {
 		logrus.WithError(err).Error("Failed to Spoof request")
 		return
@@ -184,7 +184,7 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// We optionally Spoof the response as desired.
-	modifiedResp, err := spoofResponse(spoofing, spoofCallbacks, requestBytes, proxyRes.Body)
+	modifiedResp, err := spoofResponse(p.cfg.destinationUrl.String(), spoofing, spoofCallbacks, requestBytes, proxyRes.Body)
 	if err != nil {
 		logrus.WithError(err).Error("Failed to Spoof response")
 		return
@@ -222,7 +222,7 @@ func (p *Proxy) spoofingCallbacks() *SpoofingCallbacks {
 // Parses the request from thec consensus client and checks if user desires
 // to Spoof it based on the JSON-RPC method. If so, it returns the modified
 // request bytes which will be proxied to the execution client.
-func spoofRequest(config *SpoofingConfig, callbacks *SpoofingCallbacks, requestBytes []byte) ([]byte, error) {
+func spoofRequest(requestDestination string, config *SpoofingConfig, callbacks *SpoofingCallbacks, requestBytes []byte) ([]byte, error) {
 	// If the JSON request is not a JSON-RPC object, return the request as-is.
 	jsonRequest, err := unmarshalRPCObject(requestBytes)
 	if err != nil {
@@ -239,7 +239,7 @@ func spoofRequest(config *SpoofingConfig, callbacks *SpoofingCallbacks, requestB
 	desiredMethodsToSpoof := make(map[string]*Spoof)
 	for method, spoofCallback := range callbacks.RequestCallbacks {
 		if method == jsonRequest.Method {
-			spoofReq := spoofCallback(requestBytes)
+			spoofReq := spoofCallback(requestDestination, requestBytes)
 			if spoofReq != nil {
 				desiredMethodsToSpoof[jsonRequest.Method] = spoofReq
 			}
@@ -273,7 +273,7 @@ func spoofRequest(config *SpoofingConfig, callbacks *SpoofingCallbacks, requestB
 // Parses the response body from the execution client and checks if user desires
 // to Spoof it based on the JSON-RPC method. If so, it returns the modified
 // response bytes which will be proxied to the consensus client.
-func spoofResponse(config *SpoofingConfig, callbacks *SpoofingCallbacks, requestBytes []byte, responseBody io.Reader) ([]byte, error) {
+func spoofResponse(responseSource string, config *SpoofingConfig, callbacks *SpoofingCallbacks, requestBytes []byte, responseBody io.Reader) ([]byte, error) {
 	responseBytes, err := ioutil.ReadAll(responseBody)
 	if err != nil {
 		return nil, err
@@ -304,7 +304,7 @@ func spoofResponse(config *SpoofingConfig, callbacks *SpoofingCallbacks, request
 	desiredMethodsToSpoof := make(map[string]*Spoof)
 	for method, spoofCallback := range callbacks.ResponseCallbacks {
 		if method == jsonRequest.Method {
-			spoofReq := spoofCallback(responseBytes)
+			spoofReq := spoofCallback(responseSource, responseBytes)
 			if spoofReq != nil {
 				desiredMethodsToSpoof[jsonRequest.Method] = spoofReq
 			}
